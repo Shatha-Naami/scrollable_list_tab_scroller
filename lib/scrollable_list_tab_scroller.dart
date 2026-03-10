@@ -3,7 +3,6 @@ import 'dart:math';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:scrolls_to_top/scrolls_to_top.dart';
 
@@ -52,6 +51,7 @@ class ScrollableListTabScroller extends StatefulWidget {
     this.scrollOffsetController,
     this.scrollOffsetListener,
     this.disableAutoScrollOnUserInteraction = true,
+    this.scrollOnTabTap = true,
     @Deprecated(
         "Use 'ScrollableListTabScroller.defaultComponents(tabBarProps: )' instead. Deprecated since >3.0.1")
     TabAlignment? tabAlignment = TabAlignment.start,
@@ -85,6 +85,7 @@ class ScrollableListTabScroller extends StatefulWidget {
     this.scrollOffsetController,
     this.scrollOffsetListener,
     this.disableAutoScrollOnUserInteraction = true,
+    this.scrollOnTabTap = true,
   }) : headerContainerBuilder = null;
 
   final int itemCount;
@@ -102,6 +103,11 @@ class ScrollableListTabScroller extends StatefulWidget {
   /// user is manually scrolling the list, preventing scroll conflicts.
   /// Set to `false` to restore the original always-scroll behavior.
   final bool disableAutoScrollOnUserInteraction;
+
+  /// When `true` (default), tapping a tab scrolls the body list to the
+  /// corresponding item. When `false`, tapping a tab only fires the
+  /// [tabChanged] callback without scrolling the list.
+  final bool scrollOnTabTap;
 
   final HeaderContainerProps headerContainerProps;
   final TabBarProps tabBarProps;
@@ -190,7 +196,6 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
   final _selectedTabIndex = ValueNotifier(0);
   Timer? _debounce;
   Size _currentPositionedListSize = Size.zero;
-  bool _userIsScrolling = false;
 
   @override
   void initState() {
@@ -220,7 +225,7 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
   }
 
   void _triggerScrollInPositionedListIfNeeded(int index) {
-    if (widget.disableAutoScrollOnUserInteraction && _userIsScrolling) return;
+    if (widget.disableAutoScrollOnUserInteraction) return;
     if (getDisplayedPositionFromList() != index &&
         // Prevent operation when length == 0 (Component was rendered outside screen)
         itemPositionsListener.itemPositions.value.isNotEmpty) {
@@ -308,8 +313,13 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
           child: DefaultHeaderWidget(
             key: Key(widget.itemCount.toString()),
             itemCount: widget.itemCount,
-            onTapTab: (i) => _triggerScrollInPositionedListIfNeeded(i),
-            //TODO: implement callback to handle tab click ,
+            onTapTab: (i) {
+              if (widget.scrollOnTabTap) {
+                _triggerScrollInPositionedListIfNeeded(i);
+              } else {
+                widget.tabChanged?.call(i);
+              }
+            },
             selectedTabIndex: _selectedTabIndex,
             tabBuilder: widget.tabBuilder,
             tabBarProps: widget.tabBarProps,
@@ -327,13 +337,13 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
             return NotificationListener<ScrollNotification>(
               onNotification: (notification) {
                 if (notification is UserScrollNotification) {
-                  final isIdle =
-                      notification.direction == ScrollDirection.idle;
-                  if (_userIsScrolling && isIdle) {
-                    _userIsScrolling = false;
-                  } else if (!isIdle) {
-                    _userIsScrolling = true;
-                  }
+                  // final isIdle =
+                  //     notification.direction == ScrollDirection.idle;
+                  // if (_userIsScrolling && isIdle) {
+                  //   _userIsScrolling = false;
+                  // } else if (!isIdle) {
+                  //   _userIsScrolling = true;
+                  // }
                 }
                 return false;
               },
