@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:scrolls_to_top/scrolls_to_top.dart';
 
@@ -50,6 +51,7 @@ class ScrollableListTabScroller extends StatefulWidget {
     this.minCacheExtent,
     this.scrollOffsetController,
     this.scrollOffsetListener,
+    this.disableAutoScrollOnUserInteraction = true,
     @Deprecated(
         "Use 'ScrollableListTabScroller.defaultComponents(tabBarProps: )' instead. Deprecated since >3.0.1")
     TabAlignment? tabAlignment = TabAlignment.start,
@@ -82,6 +84,7 @@ class ScrollableListTabScroller extends StatefulWidget {
     this.minCacheExtent,
     this.scrollOffsetController,
     this.scrollOffsetListener,
+    this.disableAutoScrollOnUserInteraction = true,
   }) : headerContainerBuilder = null;
 
   final int itemCount;
@@ -94,6 +97,11 @@ class ScrollableListTabScroller extends StatefulWidget {
   final void Function(int tabIndex)? tabChanged;
   final double earlyChangePositionOffset;
   final Duration animationDuration;
+
+  /// When `true` (default), programmatic tab-scroll is suppressed while the
+  /// user is manually scrolling the list, preventing scroll conflicts.
+  /// Set to `false` to restore the original always-scroll behavior.
+  final bool disableAutoScrollOnUserInteraction;
 
   final HeaderContainerProps headerContainerProps;
   final TabBarProps tabBarProps;
@@ -182,6 +190,7 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
   final _selectedTabIndex = ValueNotifier(0);
   Timer? _debounce;
   Size _currentPositionedListSize = Size.zero;
+  bool _userIsScrolling = false;
 
   @override
   void initState() {
@@ -211,10 +220,10 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
   }
 
   void _triggerScrollInPositionedListIfNeeded(int index) {
+    if (widget.disableAutoScrollOnUserInteraction && _userIsScrolling) return;
     if (getDisplayedPositionFromList() != index &&
         // Prevent operation when length == 0 (Component was rendered outside screen)
         itemPositionsListener.itemPositions.value.isNotEmpty) {
-      // disableItemPositionListener = true;
       if (itemScrollController.isAttached) {
         itemScrollController.scrollTo(
             index: index, duration: widget.animationDuration);
@@ -315,9 +324,22 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
                 _currentPositionedListSize = size;
               }
             });
-            return ScrollsToTop(
-              onScrollsToTop: _onScrollsToTop,
-              child: ScrollablePositionedList.builder(
+            return NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (notification is UserScrollNotification) {
+                  final isIdle =
+                      notification.direction == ScrollDirection.idle;
+                  if (_userIsScrolling && isIdle) {
+                    _userIsScrolling = false;
+                  } else if (!isIdle) {
+                    _userIsScrolling = true;
+                  }
+                }
+                return false;
+              },
+              child: ScrollsToTop(
+                onScrollsToTop: _onScrollsToTop,
+                child: ScrollablePositionedList.builder(
                 itemBuilder: (a, b) {
                   return widget.itemBuilder(a, b);
                 },
@@ -338,6 +360,7 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
                 minCacheExtent: widget.minCacheExtent,
                 scrollOffsetController: widget.scrollOffsetController,
                 scrollOffsetListener: widget.scrollOffsetListener,
+              ),
               ),
             );
           }),
