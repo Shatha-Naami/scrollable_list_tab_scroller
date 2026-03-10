@@ -50,7 +50,6 @@ class ScrollableListTabScroller extends StatefulWidget {
     this.minCacheExtent,
     this.scrollOffsetController,
     this.scrollOffsetListener,
-    this.disableAutoScrollOnUserInteraction = true,
     this.scrollOnTabTap = true,
     @Deprecated(
         "Use 'ScrollableListTabScroller.defaultComponents(tabBarProps: )' instead. Deprecated since >3.0.1")
@@ -84,7 +83,6 @@ class ScrollableListTabScroller extends StatefulWidget {
     this.minCacheExtent,
     this.scrollOffsetController,
     this.scrollOffsetListener,
-    this.disableAutoScrollOnUserInteraction = true,
     this.scrollOnTabTap = true,
   }) : headerContainerBuilder = null;
 
@@ -98,11 +96,6 @@ class ScrollableListTabScroller extends StatefulWidget {
   final void Function(int tabIndex)? tabChanged;
   final double earlyChangePositionOffset;
   final Duration animationDuration;
-
-  /// When `true` (default), programmatic tab-scroll is suppressed while the
-  /// user is manually scrolling the list, preventing scroll conflicts.
-  /// Set to `false` to restore the original always-scroll behavior.
-  final bool disableAutoScrollOnUserInteraction;
 
   /// When `true` (default), tapping a tab scrolls the body list to the
   /// corresponding item. When `false`, tapping a tab only fires the
@@ -225,9 +218,7 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
   }
 
   void _triggerScrollInPositionedListIfNeeded(int index) {
-    if (widget.disableAutoScrollOnUserInteraction) return;
     if (getDisplayedPositionFromList() != index &&
-        // Prevent operation when length == 0 (Component was rendered outside screen)
         itemPositionsListener.itemPositions.value.isNotEmpty) {
       if (itemScrollController.isAttached) {
         itemScrollController.scrollTo(
@@ -313,12 +304,12 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
           child: DefaultHeaderWidget(
             key: Key(widget.itemCount.toString()),
             itemCount: widget.itemCount,
+            scrollOnTabTap: widget.scrollOnTabTap,
             onTapTab: (i) {
               if (widget.scrollOnTabTap) {
                 _triggerScrollInPositionedListIfNeeded(i);
-              } else {
-                widget.tabChanged?.call(i);
               }
+              widget.tabChanged?.call(i);
             },
             selectedTabIndex: _selectedTabIndex,
             tabBuilder: widget.tabBuilder,
@@ -334,22 +325,9 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
                 _currentPositionedListSize = size;
               }
             });
-            return NotificationListener<ScrollNotification>(
-              onNotification: (notification) {
-                if (notification is UserScrollNotification) {
-                  // final isIdle =
-                  //     notification.direction == ScrollDirection.idle;
-                  // if (_userIsScrolling && isIdle) {
-                  //   _userIsScrolling = false;
-                  // } else if (!isIdle) {
-                  //   _userIsScrolling = true;
-                  // }
-                }
-                return false;
-              },
-              child: ScrollsToTop(
-                onScrollsToTop: _onScrollsToTop,
-                child: ScrollablePositionedList.builder(
+            return ScrollsToTop(
+              onScrollsToTop: _onScrollsToTop,
+              child: ScrollablePositionedList.builder(
                 itemBuilder: (a, b) {
                   return widget.itemBuilder(a, b);
                 },
@@ -371,7 +349,6 @@ class ScrollableListTabScrollerState extends State<ScrollableListTabScroller> {
                 scrollOffsetController: widget.scrollOffsetController,
                 scrollOffsetListener: widget.scrollOffsetListener,
               ),
-              ),
             );
           }),
         )
@@ -392,6 +369,7 @@ class DefaultHeaderWidget extends StatefulWidget {
   final IndexedActiveStatusWidgetBuilder tabBuilder;
   final IndexedVoidCallback onTapTab;
   final int itemCount;
+  final bool scrollOnTabTap;
   final TabBarProps tabBarProps;
 
   DefaultHeaderWidget({
@@ -400,6 +378,7 @@ class DefaultHeaderWidget extends StatefulWidget {
     required this.tabBuilder,
     required this.onTapTab,
     required this.itemCount,
+    this.scrollOnTabTap = true,
     @Deprecated("Use 'tabBarProps' instead. Deprecated since >3.0.1")
     TabAlignment? tabAlignment,
     TabBarProps? tabBarProps,
@@ -417,6 +396,7 @@ class DefaultHeaderWidget extends StatefulWidget {
 class _DefaultHeaderWidgetState extends State<DefaultHeaderWidget>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  bool _suppressCallback = false;
 
   @override
   void initState() {
@@ -427,27 +407,35 @@ class _DefaultHeaderWidgetState extends State<DefaultHeaderWidget>
       length: widget.itemCount,
       vsync: this,
     );
-    _tabController.addListener(tabChangeListener);
-    widget.selectedTabIndex.addListener(externalTabChangeListener);
+    _tabController.addListener(_onTabControllerChanged);
+    widget.selectedTabIndex.addListener(_onExternalIndexChanged);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
-    widget.selectedTabIndex.removeListener(externalTabChangeListener);
+    widget.selectedTabIndex.removeListener(_onExternalIndexChanged);
     super.dispose();
   }
 
-  void tabChangeListener() {
-    widget.onTapTab(_tabController.index);
+  void _onTabControllerChanged() {
+    if (!_suppressCallback) {
+      widget.onTapTab(_tabController.index);
+    }
   }
 
-  void externalTabChangeListener() {
+  void _onExternalIndexChanged() {
+    _suppressCallback = true;
     _tabController.index = widget.selectedTabIndex.value;
+    _suppressCallback = false;
   }
 
-  void _onTapTab(_) {
-    _tabController.index = widget.selectedTabIndex.value;
+  void _onTapTab(int tappedIndex) {
+    if (!widget.scrollOnTabTap) {
+      _suppressCallback = true;
+      _tabController.index = widget.selectedTabIndex.value;
+      _suppressCallback = false;
+    }
   }
 
   @override
